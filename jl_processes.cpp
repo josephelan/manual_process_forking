@@ -4,7 +4,7 @@
  *         Original from UWB CSS 430 Fall 2021
  * 
  * @brief This program runs the equivalent linux command:
- *          ps -A | grep arg | wc -l
+ *          ps -A | grep argv[1] | wc -l
  *        where arg is a command line input argument into the program
  *        
  * @version 0.1
@@ -27,7 +27,7 @@ using namespace std;
 
 /**
  * @brief Program driver creates child processes and pipes to run the equivalent
- *        linux command ps -A | grep arg | wc -l
+ *        linux command ps -A | grep argv[1] | wc -l
  * 
  * @pre requires command line input of a string to look for in processes
  * 
@@ -37,7 +37,7 @@ using namespace std;
  */
 int main( int argc, char** argv ) {
 
-  int fds[2][2]; // pipe
+  int fds[2][2]; // pipe array for process communication
   int pid; // process identifier
 
   // If not two arguments, program was run missing an argument.
@@ -55,7 +55,7 @@ int main( int argc, char** argv ) {
     // I'm the child
     
     // Create a pipe using fds[0]
-    // fds[0] pipe will be used for grep ssh | wc -l
+    // fds[0] pipe will be used for grep argv[1] | wc -l
     if (pipe(fds[0]) < 0) { // less than 0, pipe fails
       cerr << "Pipe creation at fds[0] failed." << endl;
       exit(-1);
@@ -72,7 +72,7 @@ int main( int argc, char** argv ) {
       // I'm the grand child
       
       // create a pipe using fds[1]
-      // fds[1] pipe will be used for grep ssh | wc -l
+      // fds[1] pipe will be used for ps -A | grep argv[1]
       if (pipe(fds[1]) < 0) { // less than 0, pipe fails
         cerr << "Pipe creation at fds[1] failed." << endl;
         exit(-1);
@@ -80,49 +80,60 @@ int main( int argc, char** argv ) {
       int pid_gchild; // New pid identifier in grand child process
 
 	    // Fork a great-grand-child
-      // If less than 0, fork failed.
-      if ((pid_gchild = fork()) < 0) {
+      if ((pid_gchild = fork()) < 0) { // If less than 0, fork failed.
         perror("Fork error creating great grand child.");
 
       // If pid == 0 process is great grand child, otherwise grand child
       } else if (pid_gchild == 0) {
         // I'm the great grand child, I run ps -A
         
-        // duplicate fds[1][1] to standard output
+        // duplicate fds[1][1] to standard output, which will map ps -A output
+        // to pipe fds[1] write side
         dup2(fds[1][1], 1);
+
+        // close pipe ends in great grand child process
         close(fds[1][1]);
         close(fds[1][0]);
         close(fds[0][1]);
         close(fds[0][0]);
 
-        // Execute ps -A and write contents to fds[0][1]
+        // Execute ps -A and write contents to fds[1][1]
         execlp("ps", "ps", "-A", (char *)NULL);
       } else {
         // I'm the grand child, i will execute grep argv[1]
 
-        // duplicate fds[1][1] to standard input
+        // duplicate fds[1][1] to standard input, which will map fds[1] read
+        // side to standard input
         dup2(fds[1][0],0);
+
+        // close fds[1] pipe
         close(fds[1][0]);
         close(fds[1][1]);
 
-        // duplicate fds[0][1] to standard output
+        // duplicate fds[0][1] to standard output, which maps grep argv[1]
+        // output to fds[0] write side
         dup2(fds[0][1], 1);
+
+        // close fds[0] pipe
         close(fds[0][1]);
         close(fds[0][0]);
 
         // Execute grep argv[1] and write contents to fds[1][1]
-        execlp("grep", "grep", argv[1],(char *)NULL);
+        execlp("grep", "grep", argv[1], (char *)NULL);
       }
     } else {
       // I'm the child, I will execute wc -l
 
-      // duplicate fds[1][0] to standard input
+      // duplicate fds[1][0] to standard input, which will map fds[0] write side
+      // to standard input
       dup2(fds[0][0],0);
+
+      // close fds[0] pipe
       close(fds[0][0]);
       close(fds[0][1]);
 
       // Child executes wc -1
-      // execute wc -l
+      // execute wc -l to standard output
       execlp("wc", "wc", "-l", (char *)NULL);
     }
   } else { // I am the parent
